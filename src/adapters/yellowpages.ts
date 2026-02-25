@@ -1,7 +1,7 @@
 import { crawlWebsite } from '../core/leadEnricher';
 import { UnifiedLead, UnifiedLeadRequest } from '../core/types';
 import { runCheerioCrawler } from '../utils/httpClient';
-import { dedupeLeads, defaultLead, keywordMatches, reachedLimit, toKeywords } from './common';
+import { abortCrawler, dedupeLeads, defaultLead, keywordMatches, reachedLimit, toKeywords } from './common';
 
 const buildSearchUrl = (keyword: string, location?: string): string =>
   `https://www.yellowpages.com/search?search_terms=${encodeURIComponent(keyword)}&geo_location_terms=${encodeURIComponent(location || '')}`;
@@ -36,7 +36,7 @@ export class YellowPagesAdapter {
       proxy: input.proxy,
       onPage: async ({ $, crawler }) => {
         leads.push(...parseYellowPages($, keywords));
-        if (reachedLimit(leads, input)) await crawler.teardown();
+        if (reachedLimit(leads, input)) await abortCrawler(crawler);
       },
     });
 

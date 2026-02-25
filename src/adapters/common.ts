@@ -32,3 +32,22 @@ export const defaultLead = (platform: string, name: string, keywords: string[], 
   confidence: 0.7,
   timestamp: new Date().toISOString(),
 });
+
+
+export const abortCrawler = async (crawler: any): Promise<void> => {
+  try {
+    if (typeof crawler?.abort === 'function') {
+      await crawler.abort();
+      return;
+    }
+    if (crawler?.autoscaledPool && typeof crawler.autoscaledPool.abort === 'function') {
+      await crawler.autoscaledPool.abort();
+      return;
+    }
+    if (typeof crawler?.teardown === 'function') {
+      await crawler.teardown();
+    }
+  } catch {
+    // no-op
+  }
+};
