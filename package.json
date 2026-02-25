@@ -1,0 +1,28 @@
+{
+  "name": "acqz",
+  "version": "1.0.0",
+  "description": "Large-scale lead generation scrapers using Crawlee + Playwright + TypeScript",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "fingerprint-generator": "^2.1.62",
+    "fingerprint-injector": "^2.1.62",
+    "axios": "^1.7.9",
+    "cheerio": "^1.0.0",
+    "crawlee": "^3.11.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "playwright": "^1.51.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

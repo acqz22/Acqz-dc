@@ -1,0 +1,46 @@
+import { crawlWebsite } from '../core/leadEnricher';
+import { UnifiedLead, UnifiedLeadRequest } from '../core/types';
+import { createHttpClient } from '../utils/httpClient';
+import { dedupeLeads, defaultLead, keywordMatches, toKeywords } from './common';
+
+const buildEndpoint = (keyword: string, country = 'US'): string =>
+  `https://adstransparency.google.com/api/v1/ads?query=${encodeURIComponent(keyword)}&regionCode=${country}`;
+
+const parseAds = (payload: any, keywords: string[]): UnifiedLead[] => {
+  const rows = Array.isArray(payload?.results) ? payload.results : [];
+  return rows.map((row: any) => ({
+    ...defaultLead('google_ads_transparency', row.advertiserName || 'Unknown Advertiser', keywordMatches(`${row.advertiserName} ${row.landingPage}`, keywords), row.advertiserPageUrl),
+    website: row.landingPage,
+    rawData: row,
+    confidence: 0.8,
+  }));
+};
+
+export class GoogleAdsTransparencyAdapter {
+  async searchLeads(input: UnifiedLeadRequest): Promise<UnifiedLead[]> {
+    const keywords = toKeywords(input.keywords);
+    const client = createHttpClient(input.proxy);
+    const country = input.filters?.country || 'US';
+    const collected: UnifiedLead[] = [];
+
+    for (const keyword of keywords) {
+      if (collected.length >= input.leadsCount) break;
+      try {
+        const { data } = await client.get(buildEndpoint(keyword, country));
+        collected.push(...parseAds(data, keywords));
+      } catch {
+        continue;
+      }
+    }
+
+    let output = dedupeLeads(collected).slice(0, input.leadsCount);
+    if (input.extractDetails) {
+      output = await Promise.all(output.map(async (lead) => {
+        if (!lead.website) return lead;
+        const enriched = await crawlWebsite(lead.website, input.extractSocialLinks);
+        return { ...lead, ...enriched, socialLinks: { ...lead.socialLinks, ...(enriched.socialLinks || {}) } };
+      }));
+    }
+    return output;
+  }
+}
