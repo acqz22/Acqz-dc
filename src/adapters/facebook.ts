@@ -4,22 +4,38 @@ import { extractEmbeddedJsonBlobs, logFallback, ParserMeta, visitObjects, withPa
 import { runSocialScrape } from './socialBase';
 
 const buildUrl = (keyword: string, location?: string): string =>
-  `https://www.facebook.com/search/pages/?q=${encodeURIComponent(`${keyword} ${location || ''}`)}`;
+  `https://www.facebook.com/search/pages/?q=${encodeURIComponent(`${keyword} ${location || ''}`.trim())}`;
 
 const PARSER_META: ParserMeta = { platform: 'facebook', parserVersion: '2.0.0', lastUpdated: '2026-02-25' };
 
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const extractFanCount = (html: string, name: string): number | undefined => {
+  const m = html.match(new RegExp(`${escapeRegExp(name)}[\\s\\S]*?"fan_count":(\\d+)`));
+  return m?.[1] ? Number(m[1]) : undefined;
+};
+
 const parseFacebookFromJson = (html: string, keyword: string): UnifiedLead[] => {
   const leads: UnifiedLead[] = [];
-  const blobs = extractEmbeddedJsonBlobs(html);
-  for (const blob of blobs) {
-    visitObjects(blob, (node) => {
-      const name = typeof node.name === 'string' ? node.name : null;
-      const url = typeof node.url === 'string' && node.url.includes('facebook.com/') ? node.url : null;
+  for (const blob of extractEmbeddedJsonBlobs(html)) {
+    visitObjects(blob, (node: any) => {
+      const name = typeof node?.name === 'string' ? node.name : null;
+      const url = typeof node?.url === 'string' && node.url.includes('facebook.com/') ? node.url : null;
       if (!name || !url) return;
-      leads.push(withParserMeta({
-        ...defaultLead('facebook', name, keywordMatches(name, [keyword]), url.replace(/\\\//g, '/')),
-        confidence: 0.72,
-      }, PARSER_META, 'embedded-json'));
+
+      const fanCount = typeof node?.fan_count === 'number' ? node.fan_count : extractFanCount(html, name);
+
+      leads.push(
+        withParserMeta(
+          {
+            ...defaultLead('facebook', name, keywordMatches(name, [keyword]), url.replace(/\\\//g, '/')),
+            rawData: fanCount !== undefined ? { likes: fanCount } : undefined,
+            confidence: 0.72,
+          },
+          PARSER_META,
+          'embedded-json',
+        ),
+      );
     });
   }
   return leads;
@@ -29,10 +45,20 @@ const parseFacebookFromDom = (html: string, keyword: string): UnifiedLead[] => {
   const leads: UnifiedLead[] = [];
   for (const match of html.matchAll(/href="(https:\/\/www.facebook.com\/[^"?#]+)"[^>]*>([^<]{2,120})</g)) {
     const [, url, label] = match;
-    leads.push(withParserMeta({
-      ...defaultLead('facebook', label.trim(), keywordMatches(label, [keyword]), url),
-      confidence: 0.58,
-    }, PARSER_META, 'dom-fallback'));
+    const name = label.trim();
+    const fanCount = extractFanCount(html, name);
+
+    leads.push(
+      withParserMeta(
+        {
+          ...defaultLead('facebook', name, keywordMatches(name, [keyword]), url),
+          rawData: fanCount !== undefined ? { likes: fanCount } : undefined,
+          confidence: 0.58,
+        },
+        PARSER_META,
+        'dom-fallback',
+      ),
+    );
   }
   return leads;
 };
@@ -51,10 +77,20 @@ export const parseFacebook = (html: string, keyword: string): UnifiedLead[] => {
     const name = m[1]?.trim();
     const url = m[2]?.replace(/\\\//g, '/');
     if (!name || !url.startsWith('https://www.facebook.com/')) continue;
-    leads.push(withParserMeta({
-      ...defaultLead('facebook', name, keywordMatches(name, [keyword]), url),
-      confidence: 0.52,
-    }, PARSER_META, 'regex-fallback'));
+
+    const fanCount = extractFanCount(html, name);
+
+    leads.push(
+      withParserMeta(
+        {
+          ...defaultLead('facebook', name, keywordMatches(name, [keyword]), url),
+          rawData: fanCount !== undefined ? { likes: fanCount } : undefined,
+          confidence: 0.52,
+        },
+        PARSER_META,
+        'regex-fallback',
+      ),
+    );
   }
   return leads;
 };
