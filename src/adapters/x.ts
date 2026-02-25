@@ -8,6 +8,21 @@ const buildUrl = (keyword: string): string =>
 
 const PARSER_META: ParserMeta = { platform: 'x', parserVersion: '2.0.0', lastUpdated: '2026-02-25' };
 
+const RESERVED_X_PATHS = new Set([
+  'about',
+  'explore',
+  'home',
+  'i',
+  'intent',
+  'messages',
+  'notifications',
+  'privacy',
+  'search',
+  'settings',
+  'share',
+  'tos',
+]);
+
 const parseXFromJson = (html: string, keyword: string): UnifiedLead[] => {
   const leads: UnifiedLead[] = [];
   for (const blob of extractEmbeddedJsonBlobs(html)) {
@@ -30,7 +45,7 @@ const parseXFromDom = (html: string, keyword: string): UnifiedLead[] => {
   const leads: UnifiedLead[] = [];
   for (const m of html.matchAll(/href="\/(\w{1,30})"[^>]*>([^<]{1,80})</g)) {
     const username = m[1];
-    if (['home', 'explore', 'notifications', 'messages', 'search'].includes(username.toLowerCase())) continue;
+    if (RESERVED_X_PATHS.has(username.toLowerCase())) continue;
     const name = m[2].trim() || username;
     leads.push(withParserMeta({
       ...defaultLead('x', name, keywordMatches(`${name} ${username}`, [keyword]), `https://x.com/${username}`),
@@ -46,8 +61,13 @@ export const parseX = (html: string, keyword: string): UnifiedLead[] => {
   logFallback(PARSER_META, 'embedded-json produced 0 leads; trying DOM selectors');
 
   const fromDom = parseXFromDom(html, keyword);
-  if (fromDom.length > 0) return fromDom;
-  logFallback(PARSER_META, 'DOM fallback produced 0 leads; trying guarded regex fallback');
+  const relevantDom = fromDom.filter((lead) => lead.matchedKeywords.length > 0);
+  if (relevantDom.length > 0) return relevantDom;
+  if (fromDom.length > 0) {
+    logFallback(PARSER_META, 'DOM selectors found only broad/non-matching routes; trying guarded regex fallback');
+  } else {
+    logFallback(PARSER_META, 'DOM fallback produced 0 leads; trying guarded regex fallback');
+  }
 
   const leads: UnifiedLead[] = [];
   for (const m of html.matchAll(/"screen_name":"([A-Za-z0-9_]{1,30})".*?"name":"([^"]{1,120})".*?"url":"([^"]*)"/g)) {

@@ -49,6 +49,14 @@ test('parses meta ads lead from embedded JSON', () => {
   assert.equal(leads[0].name, 'Acme Fitness');
 });
 
+
+test('x parser falls through to regex when dom matches only broad routes', () => {
+  const html = '<html><body><a href="/tos">Terms</a><script>{"screen_name":"acmeregex","name":"Acme Regex","url":"https://acme.example"}</script></body></html>';
+  const leads = parseX(html, 'acme');
+  assert.equal(leads.length, 1);
+  assert.equal(leads[0].profileUrl, 'https://x.com/acmeregex');
+  assert.equal((leads[0].rawData as any).parser.stage, 'regex-fallback');
+});
 test('x parser falls back to dom when json is unavailable', () => {
   const html = '<html><body><a href="/acmedom">Acme DOM</a></body></html>';
   const leads = parseX(html, 'acme');
