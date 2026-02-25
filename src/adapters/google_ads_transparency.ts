@@ -6,12 +6,23 @@ import { dedupeLeads, defaultLead, keywordMatches, toKeywords } from './common';
 const buildEndpoint = (keyword: string, country = 'US'): string =>
   `https://adstransparency.google.com/api/v1/ads?query=${encodeURIComponent(keyword)}&regionCode=${country}`;
 
+const PARSER_VERSION = '2.0.0';
+const PARSER_LAST_UPDATED = '2026-02-25';
+
 const parseAds = (payload: any, keywords: string[]): UnifiedLead[] => {
   const rows = Array.isArray(payload?.results) ? payload.results : [];
   return rows.map((row: any) => ({
     ...defaultLead('google_ads_transparency', row.advertiserName || 'Unknown Advertiser', keywordMatches(`${row.advertiserName} ${row.landingPage}`, keywords), row.advertiserPageUrl),
     website: row.landingPage,
-    rawData: row,
+    rawData: {
+      parser: {
+        platform: 'google_ads_transparency',
+        parserVersion: PARSER_VERSION,
+        lastUpdated: PARSER_LAST_UPDATED,
+        stage: 'api-json',
+      },
+      parserSource: row,
+    },
     confidence: 0.8,
   }));
 };
