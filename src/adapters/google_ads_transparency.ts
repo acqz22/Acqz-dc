@@ -1,7 +1,8 @@
 import { crawlWebsite } from '../core/leadEnricher';
 import { UnifiedLead, UnifiedLeadRequest } from '../core/types';
 import { createHttpClient } from '../utils/httpClient';
-import { dedupeLeads, defaultLead, keywordMatches, toKeywords } from './common';
+import { log } from '../utils/logger';
+import { applyPostParseFilters, dedupeLeads, defaultLead, getPlatformFilters, keywordMatches, toKeywords } from './common';
 
 const buildEndpoint = (keyword: string, country = 'US'): string =>
   `https://adstransparency.google.com/api/v1/ads?query=${encodeURIComponent(keyword)}&regionCode=${country}`;
@@ -31,8 +32,10 @@ export class GoogleAdsTransparencyAdapter {
   async searchLeads(input: UnifiedLeadRequest): Promise<UnifiedLead[]> {
     const keywords = toKeywords(input.keywords);
     const client = createHttpClient(input.proxy);
-    const country = input.filters?.country || 'US';
+    const filters = getPlatformFilters(input);
+    const country = filters?.ads?.country || 'US';
     const collected: UnifiedLead[] = [];
+    log('INFO', '[google_ads_transparency] active filters', filters || {});
 
     for (const keyword of keywords) {
       if (collected.length >= input.leadsCount) break;
@@ -44,7 +47,11 @@ export class GoogleAdsTransparencyAdapter {
       }
     }
 
-    let output = dedupeLeads(collected).slice(0, input.leadsCount);
+    const gated = applyPostParseFilters(dedupeLeads(collected), {
+      hasWebsite: filters?.ads?.hasWebsite,
+    });
+
+    let output = gated.slice(0, input.leadsCount);
     if (input.extractDetails) {
       output = await Promise.all(output.map(async (lead) => {
         if (!lead.website) return lead;

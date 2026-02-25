@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express, { Request, Response } from 'express';
-import { getAdapter } from './core/adapterFactory';
+import { getAdapter, isSupportedPlatform } from './core/adapterFactory';
+import { FilterValidationError, normalizeFilters } from './core/filterNormalizer';
 import { UnifiedLeadRequest } from './core/types';
 import { browserPool } from './utils/browserPool';
 import { log } from './utils/logger';
@@ -27,10 +28,14 @@ app.post('/leads/:platform', async (req: Request, res: Response) => {
   const timeoutMs = Number(process.env.REQUEST_TIMEOUT_MS || 120000);
 
   try {
-    const platform = req.params.platform;
+    const platform = req.params.platform.toLowerCase();
     const input = req.body as UnifiedLeadRequest;
     const validationError = isValidRequest(input);
     if (validationError) return res.status(400).json({ success: false, error: validationError });
+    if (!isSupportedPlatform(platform)) return res.status(400).json({ success: false, error: `Unsupported platform: ${platform}` });
+
+    const normalizedFilters = normalizeFilters(platform, input.filters, input.location);
+    (input as UnifiedLeadRequest & { normalizedFilters: unknown }).normalizedFilters = normalizedFilters;
 
     input.maxConcurrency = input.maxConcurrency || 3;
     if (!input.proxy && process.env.PROXY_URL) input.proxy = process.env.PROXY_URL;
@@ -46,6 +51,9 @@ app.post('/leads/:platform', async (req: Request, res: Response) => {
       runtimeSeconds: Number(((Date.now() - started) / 1000).toFixed(2)),
     });
   } catch (error) {
+    if (error instanceof FilterValidationError) {
+      return res.status(400).json({ success: false, error: error.message });
+    }
     log('ERROR', 'lead scraping request failed', (error as Error).message);
     return res.status(500).json({ success: false, error: (error as Error).message });
   }
