@@ -56,7 +56,6 @@ export class GoogleMapsAdapter {
     const gated = applyPostParseFilters(dedupeLeads(leads), {
       hasWebsite: filters?.directory?.hasWebsite,
       minRating: filters?.directory?.minRating,
-      location: filters?.directory?.location,
     });
 
     let output = gated.slice(0, input.leadsCount);

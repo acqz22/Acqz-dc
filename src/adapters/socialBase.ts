@@ -45,7 +45,6 @@ export const runSocialScrape = async (
     minLikes: normalized?.social?.minLikes,
     minConnections: normalized?.linkedin?.minConnections,
     hasWebsite: normalized?.social?.hasWebsite ?? normalized?.linkedin?.hasWebsite,
-    location,
   });
 
   let output = filtered.slice(0, input.leadsCount);
