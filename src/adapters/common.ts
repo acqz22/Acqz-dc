@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { PlatformFilterConfig } from '../core/filterNormalizer';
 import { UnifiedLead, UnifiedLeadRequest } from '../core/types';
 
 export const toKeywords = (keywords: string | string[]): string[] => (Array.isArray(keywords) ? keywords : [keywords]);
@@ -33,6 +34,36 @@ export const defaultLead = (platform: string, name: string, keywords: string[], 
   timestamp: new Date().toISOString(),
 });
 
+export const getPlatformFilters = (input: UnifiedLeadRequest): PlatformFilterConfig | undefined =>
+  (input as UnifiedLeadRequest & { normalizedFilters?: PlatformFilterConfig }).normalizedFilters;
+
+const includesLocation = (lead: UnifiedLead, location?: string): boolean => {
+  if (!location) return true;
+  const leadLocation = lead.location?.toLowerCase() || '';
+  return leadLocation.includes(location.toLowerCase());
+};
+
+export const applyPostParseFilters = (
+  leads: UnifiedLead[],
+  options: {
+    hasWebsite?: boolean;
+    minRating?: number;
+    minFollowers?: number;
+    minLikes?: number;
+    minConnections?: number;
+    location?: string;
+  },
+): UnifiedLead[] => leads.filter((lead) => {
+  if (options.hasWebsite === true && !lead.website) return false;
+
+  const metrics = (lead.rawData || {}) as Record<string, number>;
+  if (options.minRating !== undefined && Number(metrics.rating || 0) < options.minRating) return false;
+  if (options.minFollowers !== undefined && Number(metrics.followers || 0) < options.minFollowers) return false;
+  if (options.minLikes !== undefined && Number(metrics.likes || 0) < options.minLikes) return false;
+  if (options.minConnections !== undefined && Number(metrics.connections || 0) < options.minConnections) return false;
+
+  return includesLocation(lead, options.location);
+});
 
 export const abortCrawler = async (crawler: any): Promise<void> => {
   try {

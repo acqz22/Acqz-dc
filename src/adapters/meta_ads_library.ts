@@ -1,7 +1,8 @@
 import { crawlWebsite } from '../core/leadEnricher';
 import { UnifiedLead, UnifiedLeadRequest } from '../core/types';
 import { createHttpClient } from '../utils/httpClient';
-import { dedupeLeads, defaultLead, keywordMatches, toKeywords } from './common';
+import { log } from '../utils/logger';
+import { applyPostParseFilters, dedupeLeads, defaultLead, getPlatformFilters, keywordMatches, toKeywords } from './common';
 
 const buildEndpoint = (keyword: string, country = 'US'): string =>
   `https://www.facebook.com/ads/library/?active_status=all&ad_type=all&country=${encodeURIComponent(country)}&q=${encodeURIComponent(keyword)}`;
@@ -25,18 +26,24 @@ export class MetaAdsLibraryAdapter {
     const client = createHttpClient(input.proxy);
     const keywords = toKeywords(input.keywords);
     const collected: UnifiedLead[] = [];
+    const filters = getPlatformFilters(input);
+    log('INFO', '[meta_ads_library] active filters', filters || {});
 
     for (const kw of keywords) {
       if (collected.length >= input.leadsCount) break;
       try {
-        const { data } = await client.get(buildEndpoint(kw, input.filters?.country || 'US'));
+        const { data } = await client.get(buildEndpoint(kw, filters?.ads?.country || 'US'));
         collected.push(...parseMetaAds(String(data), keywords));
       } catch {
         continue;
       }
     }
 
-    let output = dedupeLeads(collected).slice(0, input.leadsCount);
+    const gated = applyPostParseFilters(dedupeLeads(collected), {
+      hasWebsite: filters?.ads?.hasWebsite,
+    });
+
+    let output = gated.slice(0, input.leadsCount);
     if (input.extractDetails) {
       output = await Promise.all(output.map(async (lead) => {
         if (!lead.profileUrl) return lead;

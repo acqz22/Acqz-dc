@@ -6,13 +6,15 @@ const buildUrl = (keyword: string): string => `https://www.instagram.com/explore
 
 const parseInstagram = (html: string, keyword: string): UnifiedLead[] => {
   const leads: UnifiedLead[] = [];
-  for (const m of html.matchAll(/"username":"([^"]+)".*?"full_name":"([^"]*)".*?"external_url":"([^"]*)"/g)) {
+  const regex = /"username":"([^"]+)".*?"full_name":"([^"]*)".*?"external_url":"([^"]*)"(?:.*?"edge_followed_by"\s*:\s*\{"count":(\d+))/g;
+  for (const m of html.matchAll(regex)) {
     const username = m[1];
     const name = m[2] || username;
     const website = m[3] || undefined;
     leads.push({
       ...defaultLead('instagram', name, keywordMatches(`${name} ${username}`, [keyword]), `https://www.instagram.com/${username}/`),
       website,
+      rawData: { followers: Number(m[4] || 0) },
       confidence: 0.65,
     });
   }

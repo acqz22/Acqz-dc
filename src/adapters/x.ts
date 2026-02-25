@@ -7,11 +7,14 @@ const buildUrl = (keyword: string): string =>
 
 const parseX = (html: string, keyword: string): UnifiedLead[] => {
   const leads: UnifiedLead[] = [];
-  for (const m of html.matchAll(/"screen_name":"([^"]+)".*?"name":"([^"]+)".*?"url":"([^"]*)"/g)) {
+  const profileRegex = /"screen_name":"([^"]+)".*?"name":"([^"]+)".*?"url":"([^"]*)"/g;
+  for (const m of html.matchAll(profileRegex)) {
     const username = m[1];
+    const followerMatch = html.match(new RegExp(`"screen_name":"${username}"[\\s\\S]*?"followers_count":(\\d+)`));
     leads.push({
       ...defaultLead('x', m[2], keywordMatches(`${m[2]} ${username}`, [keyword]), `https://x.com/${username}`),
       website: m[3] || undefined,
+      rawData: { followers: Number(followerMatch?.[1] || 0) },
       confidence: 0.7,
     });
   }

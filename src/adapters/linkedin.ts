@@ -8,8 +8,11 @@ const buildUrl = (keyword: string, location?: string): string =>
 const parseLinkedIn = (html: string, keyword: string): UnifiedLead[] => {
   const leads: UnifiedLead[] = [];
   for (const m of html.matchAll(/"title":"([^"]+)".*?"navigationUrl":"(https:\/\/www.linkedin.com\/company\/[^"]+)"/g)) {
+    const navigationUrl = m[2].replace(/\\\//g, '/');
+    const followerMatch = html.match(new RegExp(`${m[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?"followerCount":(\\d+)`));
     leads.push({
-      ...defaultLead('linkedin', m[1], keywordMatches(m[1], [keyword]), m[2].replace(/\\\//g, '/')),
+      ...defaultLead('linkedin', m[1], keywordMatches(m[1], [keyword]), navigationUrl),
+      rawData: { connections: Number(followerMatch?.[1] || 0) },
       confidence: 0.5,
     });
   }
