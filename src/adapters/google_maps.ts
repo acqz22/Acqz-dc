@@ -13,18 +13,51 @@ const buildSearchUrls = (input: UnifiedLeadRequest): string[] => {
   return kws.map((kw) => `https://www.google.com/maps/search/${encodeURIComponent(`${kw}${categoryHint} ${location}${radiusHint}`.trim())}`);
 };
 
+const GOOGLE_HOST_PATTERN = /(^|\.)google\./i;
+
+const normalizeCandidateWebsite = (candidate?: string): string | undefined => {
+  if (!candidate) return undefined;
+  try {
+    const parsed = new URL(candidate);
+    if (!/^https?:$/i.test(parsed.protocol)) return undefined;
+    if (GOOGLE_HOST_PATTERN.test(parsed.hostname)) return undefined;
+    return parsed.toString();
+  } catch {
+    return undefined;
+  }
+};
+
+const extractBusinessWebsite = ($: any, card: any): string | undefined => {
+  const websiteAnchor = $(card)
+    .find('a[data-value="Website"], a[aria-label*="Website" i], a[href*="/url?"], a[href*="?q=http"]')
+    .toArray()
+    .map((el: any) => $(el).attr('href'))
+    .find(Boolean);
+
+  if (!websiteAnchor) return undefined;
+
+  try {
+    const resolved = new URL(websiteAnchor, 'https://www.google.com');
+    const wrappedUrl = resolved.searchParams.get('q') || resolved.searchParams.get('url');
+    return normalizeCandidateWebsite(wrappedUrl || resolved.toString());
+  } catch {
+    return normalizeCandidateWebsite(websiteAnchor);
+  }
+};
+
 const parseMapCards = ($: any, keywords: string[]): UnifiedLead[] => {
   const results: UnifiedLead[] = [];
   $('a[href*="/maps/place/"]').each((_, el) => {
     const name = $(el).attr('aria-label') || $(el).text().trim();
     const profileUrl = `https://www.google.com${$(el).attr('href') || ''}`;
-    const parentText = $(el).closest('div').text();
+    const card = $(el).closest('div').parent();
+    const parentText = card.text();
     const ratingMatch = parentText.match(/(\d\.\d)\s*\(/);
-    const hasWebsite = /website/i.test(parentText);
+    const website = extractBusinessWebsite($, card);
     if (!name) return;
     results.push({
       ...defaultLead('google_maps', name, keywordMatches(name, keywords), profileUrl),
-      website: hasWebsite ? profileUrl : undefined,
+      website,
       rawData: {
         rating: ratingMatch ? Number(ratingMatch[1]) : undefined,
       },
