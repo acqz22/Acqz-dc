@@ -1,163 +1,145 @@
+import { crawlWebsite } from '../core/leadEnricher';
 import { UnifiedLead, UnifiedLeadRequest } from '../core/types';
-
-import { defaultLead, keywordMatches } from './common';
-
+import { createHttpClient } from '../utils/httpClient';
+import { log } from '../utils/logger';
+import { dedupeLeads, defaultLead, getPlatformFilters, keywordMatches, toKeywords } from './common';
 import { extractEmbeddedJsonBlobs, logFallback, ParserMeta, visitObjects, withParserMeta } from './parserSupport';
 
-import { runSocialScrape } from './socialBase';
+const buildEndpoint = (keyword: string, country = 'US'): string =>
+  `https://www.facebook.com/ads/library/?active_status=all&ad_type=all&country=${encodeURIComponent(country)}&q=${encodeURIComponent(keyword)}`;
 
-const buildUrl = (keyword: string, location?: string): string =>
+const PARSER_META: ParserMeta = { platform: 'meta_ads_library', parserVersion: '2.0.0', lastUpdated: '2026-02-25' };
 
-  `https://www.linkedin.com/search/results/companies/?keywords=${encodeURIComponent(keyword)}&origin=GLOBAL_SEARCH_HEADER&geoUrn=${encodeURIComponent(location || '')}`;
+const BAD_HOSTS = /(^|\.)facebook\.com$|(^|\.)fb\.com$|(^|\.)google\./i;
 
-const PARSER_META: ParserMeta = { platform: 'linkedin', parserVersion: '2.0.0', lastUpdated: '2026-02-25' };
+const normalizeWebsite = (candidate?: unknown): string | undefined => {
+  if (typeof candidate !== 'string' || candidate.length < 8) return undefined;
+  try {
+    const u = new URL(candidate);
+    if (!/^https?:$/i.test(u.protocol)) return undefined;
+    if (BAD_HOSTS.test(u.hostname)) return undefined;
+    return u.toString();
+  } catch {
+    return undefined;
+  }
+};
 
-const parseLinkedInFromJson = (html: string, keyword: string): UnifiedLead[] => {
-
+const parseMetaAdsFromJson = (html: string, keywords: string[]): UnifiedLead[] => {
   const leads: UnifiedLead[] = [];
-
   for (const blob of extractEmbeddedJsonBlobs(html)) {
-
     visitObjects(blob, (node: any) => {
+      const name = typeof node?.page_name === 'string' ? node.page_name : null;
+      const profileUrlRaw = typeof node?.page_profile_uri === 'string' ? node.page_profile_uri : null;
+      if (!name || !profileUrlRaw || !profileUrlRaw.includes('facebook.com/')) return;
 
-      const name = typeof node?.title === 'string' ? node.title : null;
+      const profileUrl = profileUrlRaw.replace(/\\u0025/g, '%').replace(/\\\//g, '/');
 
-      const navigationUrl = typeof node?.navigationUrl === 'string' ? node.navigationUrl : null;
-
-      if (!name || !navigationUrl || !navigationUrl.includes('/company/')) return;
-
-      const followers =
-
-        typeof node?.followerCount === 'number'
-
-          ? node.followerCount
-
-          : typeof node?.follower_count === 'number'
-
-            ? node.follower_count
-
-            : undefined;
+      const website =
+        normalizeWebsite(node?.link_url) ||
+        normalizeWebsite(node?.linkUrl) ||
+        normalizeWebsite(node?.website_url) ||
+        normalizeWebsite(node?.websiteUrl) ||
+        normalizeWebsite(node?.destination_url) ||
+        normalizeWebsite(node?.destinationUrl);
 
       leads.push(
-
         withParserMeta(
-
           {
-
-            ...defaultLead('linkedin', name, keywordMatches(name, [keyword]), navigationUrl.replace(/\\\//g, '/')),
-
-            rawData: followers !== undefined ? { connections: followers } : undefined,
-
-            confidence: 0.68,
-
+            ...defaultLead('meta_ads_library', name, keywordMatches(name, keywords), profileUrl),
+            website,
+            confidence: 0.8,
           },
-
           PARSER_META,
-
           'embedded-json',
-
         ),
-
       );
-
     });
-
   }
-
   return leads;
-
 };
 
-const parseLinkedInFromDom = (html: string, keyword: string): UnifiedLead[] => {
-
+const parseMetaAdsFromDom = (html: string, keywords: string[]): UnifiedLead[] => {
   const leads: UnifiedLead[] = [];
-
-  for (const m of html.matchAll(/href="(https:\/\/www.linkedin.com\/company\/[^"?#]+)"[^>]*>([^<]{2,120})</g)) {
-
-    const [, profileUrl, title] = m;
-
+  for (const m of html.matchAll(/href="(https:\/\/www.facebook.com\/[^"?#]+)"[^>]*>([^<]{2,120})</g)) {
+    const [, profileUrl, name] = m;
     leads.push(
-
       withParserMeta(
-
         {
-
-          ...defaultLead('linkedin', title.trim(), keywordMatches(title, [keyword]), profileUrl),
-
-          confidence: 0.54,
-
+          ...defaultLead('meta_ads_library', name.trim(), keywordMatches(name, keywords), profileUrl),
+          confidence: 0.6,
         },
-
         PARSER_META,
-
         'dom-fallback',
-
       ),
-
     );
-
   }
-
   return leads;
-
 };
 
-export const parseLinkedIn = (html: string, keyword: string): UnifiedLead[] => {
-
-  const fromJson = parseLinkedInFromJson(html, keyword);
-
+export const parseMetaAds = (html: string, keywords: string[]): UnifiedLead[] => {
+  const fromJson = parseMetaAdsFromJson(html, keywords);
   if (fromJson.length > 0) return fromJson;
-
   logFallback(PARSER_META, 'embedded-json produced 0 leads; trying DOM selectors');
 
-  const fromDom = parseLinkedInFromDom(html, keyword);
-
+  const fromDom = parseMetaAdsFromDom(html, keywords);
   if (fromDom.length > 0) return fromDom;
-
   logFallback(PARSER_META, 'DOM fallback produced 0 leads; trying guarded regex fallback');
 
+  const regex = /"page_name":"([^"]{2,120})".*?"page_id":"([^"]{2,120})".*?"page_profile_uri":"([^"]{6,300})"/g;
   const leads: UnifiedLead[] = [];
-
-  for (const m of html.matchAll(/"title":"([^"]{2,120})".*?"navigationUrl":"(https:\/\/www.linkedin.com\/company\/[^"]{6,300})"/g)) {
-
-    const name = m[1]?.trim();
-
-    const url = m[2]?.replace(/\\\//g, '/');
-
-    if (!name || !url.startsWith('https://www.linkedin.com/company/')) continue;
-
+  for (const match of html.matchAll(regex)) {
+    const name = match[1];
+    const profileUrl = match[3].replace(/\\u0025/g, '%').replace(/\\\//g, '/');
+    if (!profileUrl.startsWith('https://www.facebook.com/')) continue;
     leads.push(
-
       withParserMeta(
-
         {
-
-          ...defaultLead('linkedin', name, keywordMatches(name, [keyword]), url),
-
-          confidence: 0.5,
-
+          ...defaultLead('meta_ads_library', name, keywordMatches(name, keywords), profileUrl),
+          confidence: 0.54,
         },
-
         PARSER_META,
-
         'regex-fallback',
-
       ),
-
     );
-
   }
-
   return leads;
-
 };
 
-export class LinkedInAdapter {
-
+export class MetaAdsLibraryAdapter {
   async searchLeads(input: UnifiedLeadRequest): Promise<UnifiedLead[]> {
+    const client = createHttpClient(input.proxy);
+    const keywords = toKeywords(input.keywords);
+    const collected: UnifiedLead[] = [];
 
-    return runSocialScrape(input, 'linkedin', buildUrl, parseLinkedIn);
+    const filters = getPlatformFilters(input);
+    log('INFO', '[meta_ads_library] active filters', filters || {});
 
+    for (const kw of keywords) {
+      if (collected.length >= input.leadsCount) break;
+      try {
+        const { data } = await client.get(buildEndpoint(kw, filters?.ads?.country || 'US'));
+        collected.push(...parseMetaAds(String(data), keywords));
+      } catch {
+        continue;
+      }
+    }
+
+    let output = dedupeLeads(collected).slice(0, input.leadsCount);
+
+    if (input.extractDetails) {
+      output = await Promise.all(
+        output.map(async (lead) => {
+          const target = lead.website || lead.profileUrl;
+          if (!target) return lead;
+          const enriched = await crawlWebsite(target, input.extractSocialLinks);
+          return { ...lead, ...enriched, socialLinks: { ...lead.socialLinks, ...(enriched.socialLinks || {}) } };
+        }),
+      );
+
+      // enforce hasWebsite only after enrichment (otherwise you drop everything when website isn't parsed)
+      if (filters?.ads?.hasWebsite === true) output = output.filter((l) => !!l.website);
+    }
+
+    return output.slice(0, input.leadsCount);
   }
-
-}
+    }
