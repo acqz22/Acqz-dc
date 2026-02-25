@@ -10,6 +10,16 @@ app.use(express.json({ limit: '1mb' }));
 
 app.get('/health', (_, res) => res.json({ ok: true, service: 'acqz' }));
 
+const isValidRequest = (input: UnifiedLeadRequest): string | null => {
+  if (!input || typeof input !== 'object') return 'Body must be a JSON object';
+  if (!Number.isFinite(input.leadsCount) || input.leadsCount <= 0) return 'leadsCount must be a positive number';
+  if (typeof input.keywords !== 'string' && !Array.isArray(input.keywords)) return 'keywords must be a string or string[]';
+  if (Array.isArray(input.keywords) && input.keywords.length === 0) return 'keywords array cannot be empty';
+  if (typeof input.extractDetails !== 'boolean') return 'extractDetails must be boolean';
+  if (typeof input.extractSocialLinks !== 'boolean') return 'extractSocialLinks must be boolean';
+  return null;
+};
+
 app.post('/leads/:platform', async (req: Request, res: Response) => {
   if (req.header('x-api-key') !== process.env.API_KEY) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -19,6 +29,9 @@ app.post('/leads/:platform', async (req: Request, res: Response) => {
   try {
     const platform = req.params.platform;
     const input = req.body as UnifiedLeadRequest;
+    const validationError = isValidRequest(input);
+    if (validationError) return res.status(400).json({ success: false, error: validationError });
+
     input.maxConcurrency = input.maxConcurrency || 3;
     if (!input.proxy && process.env.PROXY_URL) input.proxy = process.env.PROXY_URL;
 

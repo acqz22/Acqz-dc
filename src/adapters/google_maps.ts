@@ -2,7 +2,7 @@ import { crawlWebsite } from '../core/leadEnricher';
 import { UnifiedLead, UnifiedLeadRequest } from '../core/types';
 import { runCheerioCrawler } from '../utils/httpClient';
 import { log } from '../utils/logger';
-import { dedupeLeads, defaultLead, keywordMatches, reachedLimit, toKeywords } from './common';
+import { abortCrawler, dedupeLeads, defaultLead, keywordMatches, reachedLimit, toKeywords } from './common';
 
 const buildSearchUrls = (input: UnifiedLeadRequest): string[] => {
   const kws = toKeywords(input.keywords);
@@ -33,7 +33,7 @@ export class GoogleMapsAdapter {
         leads.push(...parseMapCards($, keywords));
         if (reachedLimit(leads, input)) {
           log('INFO', 'Google Maps lead target reached. Aborting crawler early.');
-          await crawler.teardown();
+          await abortCrawler(crawler);
         }
       },
     });
