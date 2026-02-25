@@ -1,6 +1,6 @@
 import { FingerprintGenerator } from 'fingerprint-generator';
 import { FingerprintInjector } from 'fingerprint-injector';
-import { BrowserContext } from 'playwright';
+import { BrowserContext, Page } from 'playwright';
 
 const generator = new FingerprintGenerator({
   browsers: [{ name: 'chrome', minVersion: 120 }],
@@ -33,4 +33,16 @@ export const applyStealthToContext = async (context: BrowserContext): Promise<vo
     }
     return route.continue();
   });
+};
+
+const preparedContexts = new WeakSet<BrowserContext>();
+
+export const prepareStealthContext = async (context: BrowserContext): Promise<void> => {
+  if (preparedContexts.has(context)) return;
+  await applyStealthToContext(context);
+  preparedContexts.add(context);
+};
+
+export const prepareStealthPage = async (page: Page): Promise<void> => {
+  await prepareStealthContext(page.context());
 };
